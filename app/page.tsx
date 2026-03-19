@@ -654,7 +654,7 @@ export default function Home() {
 
           <div className={`flex items-center gap-6 text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
             <a
-              href="https://github.com/tiendatmagic/pkey-eth"
+              href="https://github.com/tiendatmagic/pkey-eth/wiki"
               target="_blank"
               rel="noopener noreferrer"
               className={`flex items-center gap-1.5 transition-colors ${isDark ? 'hover:text-emerald-400' : 'hover:text-emerald-600'}`}
