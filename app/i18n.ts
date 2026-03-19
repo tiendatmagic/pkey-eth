@@ -45,7 +45,15 @@ export const translations = {
     createDownload: "Create & Download",
     encrypting: "Encrypting... (Takes a moment)",
     errHexOnly: "Prefix and Suffix must only contain hex characters (0-9, A-F).",
-    errLength: "Combined length of Prefix and Suffix cannot exceed 40 characters."
+    errLength: "Combined length of Prefix and Suffix cannot exceed 40 characters.",
+    genMode: "Generation Mode",
+    privateKeyMode: "Private Key",
+    seedPhraseMode: "Seed Phrase",
+    mnemonicLength: "Mnemonic Length",
+    words: "words",
+    downloadSeed: "Download Seed Phrase (.txt)",
+    timeElapsed: "Time Elapsed",
+    successMsg: "SUCCESS"
   },
   vi: {
     title: "PKey ETH - Tạo địa chỉ Ethereum theo ý muốn",
@@ -91,6 +99,14 @@ export const translations = {
     createDownload: "Tạo khóa & Tải xuống",
     encrypting: "Đang xử lý khóa... (Sẽ tốn chút thời gian CPU)",
     errHexOnly: "Tiền tố và Hậu tố chỉ được chứa ký tự Hex (0-9, A-F).",
-    errLength: "Tổng chiều dài Cả tiền tố và hậu tố không được vượt quá 40 ký tự."
+    errLength: "Tổng chiều dài Cả tiền tố và hậu tố không được vượt quá 40 ký tự.",
+    genMode: "Chế độ tạo ví",
+    privateKeyMode: "Private Key",
+    seedPhraseMode: "Seed Phrase",
+    mnemonicLength: "Độ dài Seed Phrase",
+    words: "từ",
+    downloadSeed: "Tải Seed Phrase (.txt)",
+    timeElapsed: "Thời gian chạy",
+    successMsg: "SUCCESS"
   }
 };
