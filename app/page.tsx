@@ -144,8 +144,17 @@ export default function Home() {
     let lastRenderTick = performance.now();
 
     const uiRenderLoop = () => {
+      const now = performance.now();
+
+      // Ensure buffer is flushed even if searching has stopped so we don't lose the last found wallets
+      if (foundWalletsBufferRef.current.length > 0 && (now - lastRenderTick > 500 || !running)) {
+        lastRenderTick = now;
+        const batch = [...foundWalletsBufferRef.current];
+        foundWalletsBufferRef.current = [];
+        setFoundWallets((prev) => [...prev, ...batch]);
+      }
+
       if (running) {
-        const now = performance.now();
         if (now - lastRenderTick > 500) {
           lastRenderTick = now;
           setAttempts(attemptsRef.current);
@@ -154,12 +163,6 @@ export default function Home() {
           if (duration > 0) {
             setKeysPerSec(Math.round(attemptsRef.current / duration));
             setTimeElapsed(duration);
-          }
-
-          if (foundWalletsBufferRef.current.length > 0) {
-            const batch = [...foundWalletsBufferRef.current];
-            foundWalletsBufferRef.current = [];
-            setFoundWallets((prev) => [...prev, ...batch]);
           }
         }
       }
@@ -296,6 +299,13 @@ export default function Home() {
     terminateWorkers();
     setRunning(false);
     setStatus((prev) => (prev === "Running" ? "Stopped" : prev));
+
+    // Final flush of the buffer
+    if (foundWalletsBufferRef.current.length > 0) {
+      const batch = [...foundWalletsBufferRef.current];
+      foundWalletsBufferRef.current = [];
+      setFoundWallets((prev) => [...prev, ...batch]);
+    }
   };
 
   const copyToClipboard = (text: string, successMessage: string) => {
@@ -378,10 +388,10 @@ export default function Home() {
 
   const handleDownloadSeed = (wallet: any) => {
     let content = "";
+    content += `Your Ethereum wallet address: ${wallet.address}\n`;
     if (wallet.mnemonic) content += `Your mnemonic phrase: ${wallet.mnemonic}\n`;
     content += `Private Key: ${wallet.privKey}\n`;
     content += `Public Key: ${wallet.publicKey}\n`;
-    content += `Your Ethereum wallet address: ${wallet.address}\n`;
 
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -399,10 +409,10 @@ export default function Home() {
     if (foundWallets.length === 0) return;
     const content = foundWallets.map(w => {
       let text = "";
+      text += `Your Ethereum wallet address: ${w.address}\n`;
       if (w.mnemonic) text += `Your mnemonic phrase: ${w.mnemonic}\n`;
       text += `Private Key: ${w.privKey}\n`;
       text += `Public Key: ${w.publicKey}\n`;
-      text += `Your Ethereum wallet address: ${w.address}\n`;
       return text;
     }).join("\n---\n");
 
