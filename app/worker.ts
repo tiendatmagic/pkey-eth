@@ -14,22 +14,25 @@ const privateToAddress = (privateKey: Uint8Array): string => {
   return createKeccakHash('keccak256').update(Buffer.from(pub)).digest().slice(-20).toString('hex');
 };
 
-const getRandomWallet = (mode: string, mnemonicLength: number) => {
+const getRandomWallet = (mode: string, mnemonicLength: number, passphrase?: string) => {
   if (mode === 'seedPhrase') {
     const entropySize = mnemonicLength === 12 ? 16 : mnemonicLength === 15 ? 20 : mnemonicLength === 18 ? 24 : mnemonicLength === 21 ? 28 : 32;
     const entropy = randomBytes(entropySize);
     const mnemonic = Mnemonic.fromEntropy(entropy);
-    const wallet = HDNodeWallet.fromMnemonic(mnemonic);
+    const wallet = HDNodeWallet.fromMnemonic(mnemonic, passphrase);
     return {
       address: wallet.address.substring(2).toLowerCase(),
       privKey: wallet.privateKey.substring(2).toLowerCase(),
-      mnemonic: mnemonic.phrase
+      mnemonic: mnemonic.phrase,
+      publicKey: wallet.publicKey.substring(2)
     };
   }
   const randbytes = randomBytes(32);
+  const pub = secp256k1.publicKeyCreate(randbytes, false);
   return {
     address: privateToAddress(randbytes),
     privKey: Buffer.from(randbytes).toString('hex'),
+    publicKey: Buffer.from(pub).toString('hex')
   };
 };
 
@@ -75,32 +78,32 @@ const toChecksumAddress = (address: string): string => {
   return ret;
 };
 
-const step = 500; // Reduced step for mnemonic mode because it's slower
-
-const getVanityWallet = (prefix: string, suffix: string, isChecksum: boolean, mode: string, mnemonicLength: number, cb: (msg: any) => void) => {
-  let wallet = getRandomWallet(mode, mnemonicLength);
-  let attempts = 1;
-
+const getVanityWallet = (prefix: string, suffix: string, isChecksum: boolean, mode: string, mnemonicLength: number, passphrase: string, cb: (msg: any) => void) => {
   const pre = isChecksum ? prefix : prefix.toLowerCase();
   const suf = isChecksum ? suffix : suffix.toLowerCase();
+  const currentStep = mode === 'seedPhrase' ? 25 : 2000;
 
-  const currentStep = mode === 'seedPhrase' ? 50 : 2000;
+  while (true) {
+    let wallet = getRandomWallet(mode, mnemonicLength, passphrase);
+    let attempts = 1;
 
-  while (!isValidVanityAddress(wallet.address, pre, suf, isChecksum)) {
-    if (attempts >= currentStep) {
-      cb({ attempts });
-      attempts = 0;
+    while (!isValidVanityAddress(wallet.address, pre, suf, isChecksum)) {
+      if (attempts >= currentStep) {
+        cb({ attempts });
+        attempts = 0;
+      }
+      wallet = getRandomWallet(mode, mnemonicLength, passphrase);
+      attempts++;
     }
-    wallet = getRandomWallet(mode, mnemonicLength);
-    attempts++;
+    cb({ address: '0x' + toChecksumAddress(wallet.address), privKey: wallet.privKey, mnemonic: wallet.mnemonic, publicKey: wallet.publicKey, attempts });
+    // Keep loop running to find more wallets until terminated
   }
-  cb({ address: '0x' + toChecksumAddress(wallet.address), privKey: wallet.privKey, mnemonic: wallet.mnemonic, attempts });
 };
 
 self.onmessage = function (event: MessageEvent) {
   const input = event.data;
   try {
-    getVanityWallet(input.prefix, input.suffix, input.checksum, input.mode, input.mnemonicLength, (message: any) => {
+    getVanityWallet(input.prefix, input.suffix, input.checksum, input.mode, input.mnemonicLength, input.passphrase, (message: any) => {
       self.postMessage(message);
     });
   } catch (err: any) {

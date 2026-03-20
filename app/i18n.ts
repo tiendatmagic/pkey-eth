@@ -53,7 +53,15 @@ export const translations = {
     words: "words",
     downloadSeed: "Download Seed Phrase (.txt)",
     timeElapsed: "Time Elapsed",
-    successMsg: "SUCCESS"
+    successMsg: "SUCCESS",
+    usePassphrase: "Use Passphrase",
+    passphrasePlaceholder: "Enter passphrase (optional)",
+    walletCount: "Wallets to generate",
+    infinite: "Infinite",
+    foundWallets: "Found Wallets",
+    downloadAll: "Download All (.txt)",
+    zipKeystores: "Download Keystores (ZIP)",
+    publicKey: "Public Key"
   },
   vi: {
     title: "PKey ETH - Tạo địa chỉ Ethereum theo ý muốn",
@@ -107,6 +115,14 @@ export const translations = {
     words: "từ",
     downloadSeed: "Tải Seed Phrase (.txt)",
     timeElapsed: "Thời gian chạy",
-    successMsg: "SUCCESS"
+    successMsg: "SUCCESS",
+    usePassphrase: "Sử dụng passphrase",
+    passphrasePlaceholder: "Nhập passphrase (tùy chọn)",
+    walletCount: "Số lượng ví cần tìm",
+    infinite: "Vô hạn",
+    foundWallets: "Danh sách ví tìm thấy",
+    downloadAll: "Tải xuống tất cả (.txt)",
+    zipKeystores: "Tải Keystore (ZIP)",
+    publicKey: "Khóa công khai (Public Key)"
   }
 };

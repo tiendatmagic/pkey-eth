@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "buffer": "^6.0.3",
     "ethers": "^6.16.0",
+    "jszip": "^3.10.1",
     "keccak": "^3.0.4",
     "next": "16.2.0",
     "randombytes": "^2.1.0",
@@ -19,6 +21,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jszip": "^3.4.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

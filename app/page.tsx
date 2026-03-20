@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Wallet } from "ethers";
+import * as JSZipModule from "jszip";
 import { translations, Language } from "./i18n";
+
+const JSZip = (JSZipModule as any).default || JSZipModule;
 
 const generateRandomHex = (length: number) => {
   if (length <= 0) return "";
@@ -54,11 +57,6 @@ export default function Home() {
   const [status, setStatus] = useState("Waiting");
   const [attempts, setAttempts] = useState(0);
 
-  const [address, setAddress] = useState("");
-  const [privateKey, setPrivateKey] = useState("");
-  const [isKeyVisible, setIsKeyVisible] = useState(false);
-  const [blurredPrivKey, setBlurredPrivKey] = useState("");
-
   const [threads, setThreads] = useState(1);
   const [keysPerSec, setKeysPerSec] = useState(0);
   const [error, setError] = useState("");
@@ -71,15 +69,20 @@ export default function Home() {
 
   const [genMode, setGenMode] = useState<'privateKey' | 'seedPhrase'>('privateKey');
   const [mnemonicLength, setMnemonicLength] = useState<number>(12);
-  const [mnemonic, setMnemonic] = useState("");
-  const [isMnemonicVisible, setIsMnemonicVisible] = useState(false);
-  const [blurredMnemonic, setBlurredMnemonic] = useState("");
   const [timeElapsed, setTimeElapsed] = useState(0);
+
+  const [usePassphrase, setUsePassphrase] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [walletCount, setWalletCount] = useState<number | "">(1);
+  const [foundWallets, setFoundWallets] = useState<any[]>([]);
 
   const [maxCores, setMaxCores] = useState(1);
   const [showKeystoreModal, setShowKeystoreModal] = useState(false);
+  const [keystoreMode, setKeystoreMode] = useState<'single' | 'all'>('single');
+  const [encryptProgressText, setEncryptProgressText] = useState("");
   const [keystorePassword, setKeystorePassword] = useState("");
   const [isEncrypting, setIsEncrypting] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState<any>(null);
 
   const t = translations[lang];
 
@@ -87,6 +90,7 @@ export default function Home() {
   const startTickRef = useRef<number>(0);
   const attemptsRef = useRef<number>(0);
   const toastIdRef = useRef<number>(0);
+  const foundCountRef = useRef<number>(0);
 
   const showToast = (message: string) => {
     const id = toastIdRef.current++;
@@ -175,6 +179,16 @@ export default function Home() {
     }
   };
 
+  const toggleWalletVisibility = (id: number, type: 'key' | 'mnemonic') => {
+    setFoundWallets((prev) => prev.map((w) => {
+      if (w.id === id) {
+        if (type === 'key') return { ...w, isKeyVisible: !w.isKeyVisible };
+        if (type === 'mnemonic') return { ...w, isMnemonicVisible: !w.isMnemonicVisible };
+      }
+      return w;
+    }));
+  };
+
   const handleWorkerMessage = (data: any) => {
     if (data.error) {
       stopGen();
@@ -184,30 +198,34 @@ export default function Home() {
     }
 
     if (data.address) {
+      const target = walletCount === "" ? Infinity : Number(walletCount);
+      if (foundCountRef.current >= target) return;
+      foundCountRef.current++;
+
       const newAttempts = attemptsRef.current + data.attempts;
       attemptsRef.current = newAttempts;
       setAttempts(newAttempts);
 
-      stopGen();
+      setFoundWallets((prev) => {
+        const newWallet = {
+          address: data.address,
+          privKey: data.privKey,
+          mnemonic: data.mnemonic,
+          publicKey: data.publicKey,
+          id: Date.now() + Math.random(),
+          isKeyVisible: false,
+          isMnemonicVisible: false,
+          blurredPrivKey: shuffleString(data.privKey),
+          blurredMnemonic: data.mnemonic ? shuffleString(data.mnemonic) : ""
+        };
+        return [...prev, newWallet];
+      });
 
-      const wallet = new Wallet("0x" + data.privKey);
-      setAddress(wallet.address);
-      setPrivateKey(data.privKey);
-      setBlurredPrivKey(shuffleString(data.privKey));
-
-      if (data.mnemonic) {
-        setMnemonic(data.mnemonic);
-        setBlurredMnemonic(shuffleString(data.mnemonic));
-      } else {
-        setMnemonic("");
-        setBlurredMnemonic("");
+      if (foundCountRef.current >= target) {
+        stopGen();
+        setStatus("Address Found");
+        showToast(`${t.addressFound} (${foundCountRef.current})`);
       }
-
-      setIsKeyVisible(false);
-      setIsMnemonicVisible(false);
-      setStatus("Address Found");
-
-      showToast(`${t.addressFound}`);
       return;
     }
 
@@ -228,9 +246,8 @@ export default function Home() {
     terminateWorkers();
 
     setError("");
-    setAddress("");
-    setPrivateKey("");
-    setMnemonic("");
+    setFoundWallets([]);
+    setSelectedWallet(null);
     setRunning(true);
     setStatus("Running");
     setAttempts(0);
@@ -238,6 +255,7 @@ export default function Home() {
     setTimeElapsed(0);
     attemptsRef.current = 0;
     startTickRef.current = performance.now();
+    foundCountRef.current = 0;
 
     initWorkers();
 
@@ -247,6 +265,7 @@ export default function Home() {
       checksum,
       mode: genMode,
       mnemonicLength,
+      passphrase: usePassphrase ? passphrase : "",
     };
 
     workersRef.current.forEach((worker) => {
@@ -266,52 +285,106 @@ export default function Home() {
   };
 
   const handleDownloadKeystore = async () => {
-    if (!keystorePassword || isEncrypting) return;
+    if (!keystorePassword || isEncrypting || (keystoreMode === 'single' && !selectedWallet)) return;
     setIsEncrypting(true);
+    setEncryptProgressText(keystoreMode === 'single' ? t.encrypting : `${t.encrypting} 0/${foundWallets.length}`);
 
-    // Slight timeout allows React to render the loading spinner
     setTimeout(async () => {
       try {
-        const wallet = new Wallet(privateKey);
-        // Uses scrypt natively under the hood inside ethers.js
-        const json = await wallet.encrypt(keystorePassword);
+        if (keystoreMode === 'single' && selectedWallet) {
+          const wallet = new Wallet("0x" + selectedWallet.privKey);
+          const json = await wallet.encrypt(keystorePassword);
 
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        const addressPart = wallet.address.toLowerCase().replace("0x", "");
-        a.download = `UTC--${new Date().toISOString().replace(/:/g, '-')}--${addressPart}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          const addressPart = wallet.address.toLowerCase().replace("0x", "");
+          a.download = `UTC--${new Date().toISOString().replace(/:/g, '-')}--${addressPart}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast("JSON Keystore Downloaded!");
+        } else if (keystoreMode === 'all') {
+          const zip = new (JSZip as any)();
+
+          for (let i = 0; i < foundWallets.length; i++) {
+            setEncryptProgressText(`${t.encrypting} ${i + 1}/${foundWallets.length} (Heavy CPU)`);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+
+            const w = foundWallets[i];
+            const wallet = new Wallet("0x" + w.privKey);
+            const json = await wallet.encrypt(keystorePassword);
+            const addressPart = wallet.address.toLowerCase().replace("0x", "");
+            zip.file(`UTC--${new Date().toISOString().replace(/:/g, '-')}--${addressPart}.json`, json);
+          }
+
+          setEncryptProgressText("Compressing...");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          const zipContent = await zip.generateAsync({ type: "blob" });
+          const url = URL.createObjectURL(zipContent);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `keystores-${new Date().toISOString().replace(/:/g, "-")}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast(`Downloaded ${foundWallets.length} Keystores (ZIP)!`);
+        }
 
         setShowKeystoreModal(false);
         setKeystorePassword("");
-        // No specific translation requested for download success besides standard, let's just make it simple or use copiedAddress?
-        // Actually, the user didn't request translated download toast, but I will use a generic one or just 'Success'
-        showToast("JSON Keystore Downloaded!");
       } catch (err: any) {
         showToast("Encryption failed: " + err.message);
       } finally {
         setIsEncrypting(false);
+        setEncryptProgressText("");
       }
     }, 50);
   };
 
-  const handleDownloadSeed = () => {
-    if (!mnemonic) return;
-    const blob = new Blob([mnemonic], { type: "text/plain" });
+  const handleDownloadSeed = (wallet: any) => {
+    let content = "";
+    if (wallet.mnemonic) content += `Your mnemonic phrase: ${wallet.mnemonic}\n`;
+    content += `Private Key: ${wallet.privKey}\n`;
+    content += `Public Key: ${wallet.publicKey}\n`;
+    content += `Your Ethereum wallet address: ${wallet.address}\n`;
+
+    const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `seed-${address.toLowerCase().replace("0x", "")}.txt`;
+    a.download = `eth-wallet-${wallet.address}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast("Seed Phrase Downloaded!");
+  };
+
+  const handleDownloadAllSeed = () => {
+    if (foundWallets.length === 0) return;
+    const content = foundWallets.map(w => {
+      let text = "";
+      if (w.mnemonic) text += `Your mnemonic phrase: ${w.mnemonic}\n`;
+      text += `Private Key: ${w.privKey}\n`;
+      text += `Public Key: ${w.publicKey}\n`;
+      text += `Your Ethereum wallet address: ${w.address}\n`;
+      return text;
+    }).join("\n---\n");
+
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `eth-wallets-export-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`${foundWallets.length} Wallets Downloaded!`);
   };
 
   const isInputValid = (!prefix || prefix.match(/^[0-9a-fA-F]*$/)) && (!suffix || suffix.match(/^[0-9a-fA-F]*$/)) && (prefix.length + suffix.length <= 40);
@@ -353,7 +426,7 @@ export default function Home() {
       <div className="absolute top-6 right-6 flex items-center gap-3 z-20">
         <button
           onClick={() => changeLanguage(lang === 'en' ? 'vi' : 'en')}
-          className={`p-3 rounded-full shadow-lg backdrop-blur border cursor-pointer ${isDark ? 'bg-slate-800/50 border-slate-600 text-slate-200' : 'bg-white/80 border-slate-200 text-slate-700'} hover:scale-110 transition-all font-bold text-sm tracking-widest`}
+          className={`p-3 rounded-full shadow-lg backdrop-blur border cursor-pointer ${isDark ? 'bg-slate-800/50 border-slate-600 text-slate-200' : 'bg-white/80 border-slate-200 text-slate-600'} hover:scale-110 transition-all font-bold text-sm tracking-widest`}
           aria-label="Toggle Language"
           title="Toggle Language"
         >
@@ -432,7 +505,7 @@ export default function Home() {
               {genMode === 'seedPhrase' && (
                 <div className="mb-6 animate-[fadeIn_0.3s_ease-out]">
                   <label className={`block text-xs font-bold ${textMuted} uppercase tracking-widest mb-3`}>{t.mnemonicLength}</label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 mb-4">
                     {[12, 15, 18, 21, 24].map((len) => (
                       <button
                         key={len}
@@ -445,8 +518,74 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
+
+                  <div className="space-y-3">
+                    <label className="flex items-center cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={usePassphrase}
+                        onChange={(e) => setUsePassphrase(e.target.checked)}
+                        disabled={running}
+                        className={`w-5 h-5 text-indigo-500 ${isDark ? 'bg-slate-900 border-slate-600' : 'bg-white border-slate-300'} rounded focus:ring-indigo-500 focus:ring-offset-0`}
+                      />
+                      <span className={`ml-3 font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t.usePassphrase}</span>
+                    </label>
+
+                    {usePassphrase && (
+                      <input
+                        type="text"
+                        value={passphrase}
+                        onChange={(e) => setPassphrase(e.target.value)}
+                        disabled={running}
+                        placeholder={t.passphrasePlaceholder}
+                        className={`w-full px-4 py-2.5 ${inputBg} border ${inputBorder} rounded-lg ${inputActive} ${textMain} disabled:opacity-50 text-base transition-all shadow-sm animate-[fadeIn_0.2s_ease-out]`}
+                      />
+                    )}
+                  </div>
                 </div>
               )}
+
+              <div className="mb-6">
+                <label className={`block text-xs font-bold ${textMuted} uppercase tracking-widest mb-3`}>{t.walletCount}</label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className={`flex w-full sm:w-auto items-center ${isDark ? 'bg-slate-900/80' : 'bg-slate-100'} rounded-lg p-1 border ${subtleBorder} select-none`}>
+                    <button
+                      type="button"
+                      onClick={() => setWalletCount(walletCount === "" ? 1 : Math.max(1, Number(walletCount) - 1))}
+                      disabled={running || walletCount === ""}
+                      className={`w-12 h-10 flex items-center justify-center rounded ${btnIconBg} text-lg transition-colors disabled:opacity-50 font-bold`}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      value={walletCount}
+                      onChange={(e) => setWalletCount(e.target.value === "" ? "" : Math.max(1, parseInt(e.target.value)))}
+                      disabled={running || walletCount === ""}
+                      className={`w-24 text-center px-2 py-2 bg-transparent outline-none ${textMain} disabled:opacity-50 text-xl font-bold font-mono [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setWalletCount(walletCount === "" ? 1 : Number(walletCount) + 1)}
+                      disabled={running || walletCount === ""}
+                      className={`w-12 h-10 flex items-center justify-center rounded ${btnIconBg} text-lg transition-colors disabled:opacity-50 font-bold`}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <label className={`flex flex-1 sm:flex-none justify-center items-center cursor-pointer ${isDark ? 'bg-slate-800/80 border-slate-700 hover:border-slate-500' : 'bg-white border-slate-300 hover:border-slate-400'} px-5 py-2.5 rounded-lg border transition-all h-[48px] shadow-sm`}>
+                    <input
+                      type="checkbox"
+                      checked={walletCount === ""}
+                      onChange={(e) => setWalletCount(e.target.checked ? "" : 1)}
+                      disabled={running}
+                      className={`w-5 h-5 text-emerald-500 ${isDark ? 'bg-slate-900 border-slate-600' : 'bg-white border-slate-300'} rounded focus:ring-emerald-500 focus:ring-offset-0`}
+                    />
+                    <span className={`ml-3 text-base font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t.infinite}</span>
+                  </label>
+                </div>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div>
@@ -489,7 +628,7 @@ export default function Home() {
                     disabled={running}
                     className={`w-5 h-5 text-emerald-500 ${isDark ? 'bg-slate-900 border-slate-600' : 'bg-white border-slate-300'} rounded focus:ring-emerald-500 focus:ring-offset-0`}
                   />
-                  <span className={`ml-3 font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t.caseSensitive}</span>
+                  <span className={`ml-3 font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{t.caseSensitive}</span>
                 </label>
 
                 <div className="flex flex-col items-end gap-2">
@@ -625,148 +764,198 @@ export default function Home() {
         </div>
 
         {/* Result Panel */}
-        {address && (
+        {foundWallets.length > 0 && (
           <div className={`mt-8 ${cardBg} rounded-2xl ${isDark ? "shadow-[0_0_40px_rgba(16,185,129,0.15)]" : "shadow-xl border-emerald-300"} p-6 md:p-8 border ${isDark ? "border-emerald-500/50" : "border-emerald-400"} backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] transition-colors duration-300`}>
-            <h2 className={`text-2xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r ${isDark ? "from-emerald-400 to-teal-300" : "from-emerald-600 to-teal-500"} text-center flex items-center justify-center gap-3`}>
-              SUCCESS
-            </h2>
-
-            <div className="grid gap-6">
-              <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-emerald-500/30' : 'hover:border-emerald-400'}`}>
-                <div className="flex justify-between items-center mb-2">
-                  <label className={`text-xs font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'} uppercase tracking-widest`}>{t.ethAddress}</label>
-                  <button
-                    onClick={() => copyToClipboard(address, t.copiedAddress)}
-                    className={`text-slate-400 ${isDark ? 'hover:text-emerald-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-emerald-600 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-2 rounded-lg border`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                </div>
-                <div className={`font-mono ${addressText} text-base sm:text-lg break-all select-all font-medium`}>{address}</div>
-              </div>
-
-              <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-rose-500/30' : 'hover:border-rose-400'} relative overflow-hidden`}>
-                <div className={`absolute top-0 right-0 w-16 h-16 ${isDark ? 'bg-rose-500/5' : 'bg-rose-500/10'} blur-2xl mt-[-10px] mr-[-10px] rounded-full`}></div>
-                <div className="flex justify-between items-center mb-2 relative z-10">
-                  <label className={`text-xs font-bold ${isDark ? 'text-rose-400' : 'text-rose-600'} uppercase tracking-widest flex items-center gap-2`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                    </svg>
-                    {t.privateKey}
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setIsKeyVisible(!isKeyVisible)}
-                      className={`text-slate-400 ${isDark ? 'hover:text-amber-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-amber-500 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-2 rounded-lg border`}
-                    >
-                      {isKeyVisible ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => copyToClipboard(privateKey, t.copiedPrivKey)}
-                      className={`text-slate-400 ${isDark ? 'hover:text-rose-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-rose-500 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-2 rounded-lg border`}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div
-                  className={`font-mono text-base sm:text-lg break-all transition-all duration-300 relative font-medium z-10 ${
-                    isKeyVisible ? `${privKeyText} select-all ${isDark ? "filter drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]" : ""}` : `${isDark ? "text-rose-500/50" : "text-rose-400/50"} blur-sm select-none`
-                  }`}
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+              <h2 className={`text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r ${isDark ? "from-emerald-400 to-teal-300" : "from-emerald-600 to-teal-500"} flex items-center gap-3`}>
+                SUCCESS ({foundWallets.length})
+              </h2>
+              <div className="flex flex-wrap items-center gap-3">
+                 <button
+                  onClick={() => {
+                    setKeystoreMode('all');
+                    setKeystorePassword("");
+                    setShowKeystoreModal(true);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 ${isDark ? 'border-amber-500/50 hover:bg-amber-500/20 text-amber-300' : 'border-amber-400 hover:bg-amber-50 text-amber-700'} font-bold transition-all text-sm`}
                 >
-                  {isKeyVisible ? privateKey : blurredPrivKey}
-                </div>
-              </div>
-
-              {mnemonic && (
-                <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-indigo-500/30' : 'hover:border-indigo-400'} relative overflow-hidden`}>
-                  <div className={`absolute top-0 right-0 w-16 h-16 ${isDark ? 'bg-indigo-500/5' : 'bg-indigo-500/10'} blur-2xl mt-[-10px] mr-[-10px] rounded-full`}></div>
-                  <div className="flex justify-between items-center mb-2 relative z-10">
-                    <label className={`text-xs font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'} uppercase tracking-widest flex items-center gap-2`}>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                      </svg>
-                      {t.seedPhraseMode} ({mnemonic.split(' ').length} {t.words})
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setIsMnemonicVisible(!isMnemonicVisible)}
-                        className={`text-slate-400 ${isDark ? 'hover:text-amber-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-amber-500 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-2 rounded-lg border`}
-                      >
-                        {isMnemonicVisible ? (
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                        ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => copyToClipboard(mnemonic, "Seed Phrase copied!")}
-                        className={`text-slate-400 ${isDark ? 'hover:text-indigo-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-indigo-500 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-2 rounded-lg border`}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    className={`font-mono text-base sm:text-lg break-all transition-all duration-300 relative font-medium z-10 ${
-                      isMnemonicVisible ? `text-indigo-400 select-all ${isDark ? "filter drop-shadow-[0_0_8px_rgba(99,102,241,0.3)]" : ""}` : `${isDark ? "text-indigo-500/50" : "text-indigo-400/50"} blur-sm select-none`
-                    }`}
-                  >
-                    {isMnemonicVisible ? mnemonic : blurredMnemonic}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 flex flex-col items-center gap-3">
-              <div className="flex flex-wrap justify-center gap-3">
-                <button
-                  onClick={() => setShowKeystoreModal(true)}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border-2 ${isDark ? 'border-amber-500/50 hover:bg-amber-500/20 text-amber-300' : 'border-amber-400 hover:bg-amber-50 text-amber-700'} font-bold transition-all shadow-sm transform hover:-translate-y-0.5 group`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:-translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  {t.createKeystore}
+                  {t.zipKeystores}
+                </button>
+                <button
+                  onClick={handleDownloadAllSeed}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 ${isDark ? 'border-emerald-500/50 hover:bg-emerald-500/20 text-emerald-300' : 'border-emerald-400 hover:bg-emerald-50 text-emerald-700'} font-bold transition-all text-sm`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {t.downloadAll}
                 </button>
 
-                {mnemonic && (
-                  <button
-                    onClick={handleDownloadSeed}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border-2 ${isDark ? 'border-indigo-500/50 hover:bg-indigo-500/20 text-indigo-300' : 'border-indigo-400 hover:bg-indigo-50 text-indigo-700'} font-bold transition-all shadow-sm transform hover:-translate-y-0.5 group`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:-translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    {t.downloadSeed}
-                  </button>
-                )}
               </div>
-              <p className={`text-rose-500/90 text-sm font-semibold`}>{t.securityWarning}</p>
             </div>
 
+            <div className="max-h-[600px] overflow-y-auto pr-2 custom-scrollbar space-y-8">
+              {foundWallets.map((w, idx) => (
+                <div key={w.id} className={`p-6 rounded-2xl border ${isDark ? 'border-slate-700/50 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'} relative group/item`}>
+                  <div className={`absolute top-3 left-3 w-9 h-9 rounded-full ${isDark ? 'bg-emerald-600' : 'bg-emerald-500'} text-white flex items-center justify-center font-bold text-sm shadow-lg`}>
+                    {idx + 1}
+                  </div>
+
+                  <div className="grid gap-6">
+                    <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-emerald-500/30' : 'hover:border-emerald-400'}`}>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className={`text-xs font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'} uppercase tracking-widest`}>{idx === 0 ? t.ethAddress : `${t.ethAddress} #${idx+1}`}</label>
+                        <button
+                          onClick={() => copyToClipboard(w.address, t.copiedAddress)}
+                          className={`text-slate-400 ${isDark ? 'btnIconBg p-2 rounded-lg border' : `hover:text-emerald-600 ${btnIconBg} p-2 rounded-lg border`}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className={`font-mono ${addressText} text-base sm:text-lg break-all select-all font-medium`}>{w.address}</div>
+                    </div>
+
+                    <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-rose-500/30' : 'hover:border-rose-400'} relative overflow-hidden`}>
+                      <div className="flex justify-between items-center mb-2 relative z-10">
+                        <label className={`text-xs font-bold ${isDark ? 'text-rose-400' : 'text-rose-600'} uppercase tracking-widest flex items-center gap-2`}>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                          </svg>
+                          {t.privateKey}
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => copyToClipboard(w.privKey, t.copiedPrivKey)}
+                            className={`text-slate-400 ${isDark ? 'hover:text-rose-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-rose-600 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-1.5 rounded-lg border`}
+                            title="Copy Private Key"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => toggleWalletVisibility(w.id, 'key')}
+                            className={`text-slate-400 ${isDark ? 'hover:text-amber-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-amber-500 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-1.5 rounded-lg border`}
+                          >
+                            {w.isKeyVisible ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268-2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                              </svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <div className={`font-mono text-sm sm:text-base break-all transition-all duration-300 relative font-medium z-10 ${
+                        w.isKeyVisible ? `${privKeyText} select-all` : `${isDark ? "text-rose-500/50" : "text-rose-400/50"} blur-sm select-none`
+                      }`}>
+                        {w.isKeyVisible ? w.privKey : w.blurredPrivKey}
+                      </div>
+                    </div>
+
+                    {w.mnemonic && (
+                      <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-indigo-500/30' : 'hover:border-indigo-400'} relative overflow-hidden`}>
+                        <div className="flex justify-between items-center mb-2 relative z-10">
+                          <label className={`text-xs font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'} uppercase tracking-widest flex items-center gap-2`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                            </svg>
+                            {t.seedPhraseMode}
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => copyToClipboard(w.mnemonic, "Copied Seed Phrase to clipboard!")}
+                              className={`text-slate-400 ${isDark ? 'hover:text-indigo-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-indigo-600 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-1.5 rounded-lg border`}
+                              title="Copy Seed Phrase"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => toggleWalletVisibility(w.id, 'mnemonic')}
+                              className={`text-slate-400 ${isDark ? 'hover:text-amber-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50' : 'hover:text-amber-500 bg-slate-100 hover:bg-slate-200 border-slate-200'} transition-colors p-1.5 rounded-lg border`}
+                            >
+                              {w.isMnemonicVisible ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268-2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                </svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div className={`font-mono text-sm sm:text-base break-all transition-all duration-300 relative font-medium z-10 ${
+                          w.isMnemonicVisible ? `text-indigo-400 select-all` : `${isDark ? "text-indigo-500/50" : "text-indigo-400/50"} blur-sm select-none`
+                        }`}>
+                          {w.isMnemonicVisible ? w.mnemonic : w.blurredMnemonic}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex gap-3">
+                    <button
+                      onClick={() => handleDownloadSeed(w)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border ${isDark ? 'border-slate-700 hover:bg-slate-800 text-indigo-400' : 'border-slate-300 hover:bg-slate-100 text-indigo-600'} text-xs font-bold transition-all`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      {t.downloadSeed}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedWallet(w);
+                        setKeystoreMode('single');
+                        setKeystorePassword("");
+                        setShowKeystoreModal(true);
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border ${isDark ? 'border-slate-700 hover:bg-slate-800 text-amber-400' : 'border-slate-300 hover:bg-slate-100 text-amber-600'} text-xs font-bold transition-all`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      {t.createKeystore}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className={`text-rose-500/90 text-sm font-semibold text-center mt-6`}>{t.securityWarning}</p>
           </div>
         )}
+
+        <style dangerouslySetInnerHTML={{ __html: `
+          .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: ${isDark ? '#334155' : '#cbd5e1'};
+            border-radius: 10px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: ${isDark ? '#475569' : '#94a3b8'};
+          }
+        `}} />
+
 
         {/* Disclaimer */}
         <div className={`mt-12 ${isDark ? 'bg-slate-900/60 border-amber-900/40 shadow-xl' : 'bg-amber-50/80 border-amber-200 shadow-md'} rounded-xl flex flex-col sm:flex-row p-6 border mx-auto backdrop-blur-sm transition-colors duration-300`}>
@@ -873,7 +1062,7 @@ export default function Home() {
               />
               <button
                 type="submit"
-                disabled={isEncrypting || !keystorePassword}
+                disabled={isEncrypting || !keystorePassword || keystorePassword.length < 6}
                 className={`w-full py-3 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:bg-slate-700 disabled:text-slate-500' : 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:bg-slate-300 disabled:text-slate-500'}`}
               >
                 {isEncrypting ? (
@@ -882,7 +1071,7 @@ export default function Home() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    {t.encrypting}
+                    {encryptProgressText || t.encrypting}
                   </>
                 ) : (
                   t.createDownload
