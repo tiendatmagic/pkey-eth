@@ -81,7 +81,7 @@ const toChecksumAddress = (address: string): string => {
 const getVanityWallet = (prefix: string, suffix: string, isChecksum: boolean, mode: string, mnemonicLength: number, passphrase: string, cb: (msg: any) => void) => {
   const pre = isChecksum ? prefix : prefix.toLowerCase();
   const suf = isChecksum ? suffix : suffix.toLowerCase();
-  const currentStep = mode === 'seedPhrase' ? 25 : 2000;
+  const currentStep = mode === 'seedPhrase' ? 50 : 25000;
 
   while (true) {
     let wallet = getRandomWallet(mode, mnemonicLength, passphrase);

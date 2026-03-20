@@ -7,6 +7,8 @@ import { translations, Language } from "./i18n";
 
 const JSZip = (JSZipModule as any).default || JSZipModule;
 
+const MAX_WALLETS = 1000000000;
+
 const generateRandomHex = (length: number) => {
   if (length <= 0) return "";
   return Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join('');
@@ -86,6 +88,7 @@ export default function Home() {
   const [persistentSkipWarning, setPersistentSkipWarning] = useState(false);
   const [modalCheckbox, setModalCheckbox] = useState(true);
   const [selectedWallet, setSelectedWallet] = useState<any>(null);
+  const [displayCount, setDisplayCount] = useState(100);
 
   const t = translations[lang];
 
@@ -94,6 +97,8 @@ export default function Home() {
   const attemptsRef = useRef<number>(0);
   const toastIdRef = useRef<number>(0);
   const foundCountRef = useRef<number>(0);
+  const foundWalletsBufferRef = useRef<any[]>([]);
+  const abortEncryptRef = useRef<boolean>(false);
 
   const showToast = (message: string) => {
     const id = toastIdRef.current++;
@@ -149,6 +154,12 @@ export default function Home() {
           if (duration > 0) {
             setKeysPerSec(Math.round(attemptsRef.current / duration));
             setTimeElapsed(duration);
+          }
+
+          if (foundWalletsBufferRef.current.length > 0) {
+            const batch = [...foundWalletsBufferRef.current];
+            foundWalletsBufferRef.current = [];
+            setFoundWallets((prev) => [...prev, ...batch]);
           }
         }
       }
@@ -206,7 +217,7 @@ export default function Home() {
     }
 
     if (data.address) {
-      const target = walletCount === "" ? Infinity : Number(walletCount);
+      const target = walletCount === "" ? MAX_WALLETS : Math.min(Number(walletCount), MAX_WALLETS);
       if (foundCountRef.current >= target) return;
       foundCountRef.current++;
 
@@ -214,20 +225,18 @@ export default function Home() {
       attemptsRef.current = newAttempts;
       setAttempts(newAttempts);
 
-      setFoundWallets((prev) => {
-        const newWallet = {
-          address: data.address,
-          privKey: data.privKey,
-          mnemonic: data.mnemonic,
-          publicKey: data.publicKey,
-          id: Date.now() + Math.random(),
-          isKeyVisible: false,
-          isMnemonicVisible: false,
-          blurredPrivKey: shuffleString(data.privKey),
-          blurredMnemonic: data.mnemonic ? shuffleString(data.mnemonic) : ""
-        };
-        return [...prev, newWallet];
-      });
+      const newWallet = {
+        address: data.address,
+        privKey: data.privKey,
+        mnemonic: data.mnemonic,
+        publicKey: data.publicKey,
+        id: Date.now() + Math.random(),
+        isKeyVisible: false,
+        isMnemonicVisible: false,
+        blurredPrivKey: shuffleString(data.privKey),
+        blurredMnemonic: data.mnemonic ? shuffleString(data.mnemonic) : ""
+      };
+      foundWalletsBufferRef.current.push(newWallet);
 
       if (foundCountRef.current >= target) {
         stopGen();
@@ -264,6 +273,8 @@ export default function Home() {
     attemptsRef.current = 0;
     startTickRef.current = performance.now();
     foundCountRef.current = 0;
+    foundWalletsBufferRef.current = [];
+    setDisplayCount(100);
 
     initWorkers();
 
@@ -295,6 +306,7 @@ export default function Home() {
   const handleDownloadKeystore = async () => {
     if (!keystorePassword || isEncrypting || (keystoreMode === 'single' && !selectedWallet)) return;
     setIsEncrypting(true);
+    abortEncryptRef.current = false;
     setEncryptProgressText(keystoreMode === 'single' ? t.encrypting : `${t.encrypting} 0/${foundWallets.length}`);
 
     setTimeout(async () => {
@@ -318,6 +330,11 @@ export default function Home() {
           const zip = new (JSZip as any)();
 
           for (let i = 0; i < foundWallets.length; i++) {
+            if (abortEncryptRef.current) {
+              setIsEncrypting(false);
+              setEncryptProgressText("");
+              return;
+            }
             setEncryptProgressText(`${t.encrypting} ${i + 1}/${foundWallets.length} (Heavy CPU)`);
             await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -326,6 +343,12 @@ export default function Home() {
             const json = await wallet.encrypt(keystorePassword);
             const addressPart = wallet.address.toLowerCase().replace("0x", "");
             zip.file(`UTC--${new Date().toISOString().replace(/:/g, '-')}--${addressPart}.json`, json);
+          }
+
+          if (abortEncryptRef.current) {
+            setIsEncrypting(false);
+            setEncryptProgressText("");
+            return;
           }
 
           setEncryptProgressText("Compressing...");
@@ -459,8 +482,8 @@ export default function Home() {
       </div>
 
       <div className="max-w-7xl w-full px-4">
-        <div className="text-center mb-10 pt-4 flex flex-col items-center">
-          <div className="mb-4 p-3 rounded-2xl border border-slate-700/30 backdrop-blur-sm">
+        <div className="text-center mb-6 md:mb-10 pt-4 flex flex-col items-center">
+          <div className="mb-3 md:mb-4 p-2 md:p-3 rounded-2xl border border-slate-700/30 backdrop-blur-sm">
             <img src="/logo.png" alt="PKey ETH Logo" className="h-20 w-auto rounded-lg" />
           </div>
           <h1 className={`text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r ${isDark ? "from-emerald-400 to-teal-300" : "from-emerald-600 to-teal-500"} mb-3 transition-transform duration-300 inline-block pointer-events-none`}>
@@ -483,7 +506,7 @@ export default function Home() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* User Input Panel */}
-          <div className={`${cardBg} rounded-2xl ${cardShadow} p-6 md:p-8 border ${cardBorder} backdrop-blur-md relative overflow-hidden group transition-colors duration-300`}>
+          <div className={`${cardBg} rounded-2xl ${cardShadow} p-4 md:p-8 border ${cardBorder} backdrop-blur-md relative overflow-hidden group transition-colors duration-300`}>
             <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${isDark ? "from-emerald-500 to-teal-400 opacity-60" : "from-emerald-400 to-teal-300 opacity-80"} group-hover:opacity-100 transition-opacity`}></div>
 
             <form onSubmit={(e) => e.preventDefault()}>
@@ -513,7 +536,7 @@ export default function Home() {
               {genMode === 'seedPhrase' && (
                 <div className="mb-6 animate-[fadeIn_0.3s_ease-out]">
                   <label className={`block text-xs font-bold ${textMuted} uppercase tracking-widest mb-3`}>{t.mnemonicLength}</label>
-                  <div className="flex flex-wrap gap-2 mb-4">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
                     {[12, 15, 18, 21, 24].map((len) => (
                       <button
                         key={len}
@@ -565,11 +588,23 @@ export default function Home() {
                     >
                       -
                     </button>
-                    <div className="px-8 text-center min-w-[120px]">
+                    <div className="px-4 text-center min-w-[120px]">
                       {walletCount === "" ? (
                         <span className={`text-2xl font-black ${isDark ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-emerald-600'}`}>∞</span>
                       ) : (
-                        <span className={`text-2xl font-black ${isDark ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-emerald-600'}`}>{walletCount}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max={MAX_WALLETS}
+                          value={walletCount}
+                          onChange={(e) => {
+                            const val = e.target.value === "" ? "" : parseInt(e.target.value);
+                            const cappedVal = val === "" ? 1 : Math.min(val, MAX_WALLETS);
+                            setWalletCount(cappedVal);
+                          }}
+                          disabled={running}
+                          className={`w-20 text-center text-2xl font-black bg-transparent border-none outline-none ${isDark ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-emerald-600'} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                        />
                       )}
                       <span className={`text-[11px] ${textMuted} block -mt-1 font-extrabold uppercase tracking-widest`}>{t.wallets}</span>
                     </div>
@@ -701,7 +736,7 @@ export default function Home() {
           </div>
 
           {/* Statistics Panel */}
-          <div className={`${cardBg} rounded-2xl ${cardShadow} p-6 md:p-8 border ${cardBorder} backdrop-blur-md relative overflow-hidden group flex flex-col justify-between transition-colors duration-300`}>
+          <div className={`${cardBg} rounded-2xl ${cardShadow} p-4 md:p-8 border ${cardBorder} backdrop-blur-md relative overflow-hidden group flex flex-col justify-between transition-colors duration-300`}>
             <div className={`absolute top-0 right-0 w-full h-1 bg-gradient-to-l ${isDark ? "from-emerald-500 to-teal-400 opacity-60" : "from-emerald-400 to-teal-300 opacity-80"} group-hover:opacity-100 transition-opacity`}></div>
 
             <div className={`space-y-4 ${textMain}`}>
@@ -784,7 +819,7 @@ export default function Home() {
 
         {/* Result Panel */}
         {foundWallets.length > 0 && (
-          <div className={`mt-8 ${cardBg} rounded-2xl ${isDark ? "shadow-[0_0_40px_rgba(16,185,129,0.15)]" : "shadow-xl border-emerald-300"} p-6 md:p-8 border ${isDark ? "border-emerald-500/50" : "border-emerald-400"} backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] transition-colors duration-300`}>
+          <div className={`mt-8 ${cardBg} rounded-2xl ${isDark ? "shadow-[0_0_40px_rgba(16,185,129,0.15)]" : "shadow-xl border-emerald-300"} p-4 md:p-8 border ${isDark ? "border-emerald-500/50" : "border-emerald-400"} backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] transition-colors duration-300`}>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
               <h2 className={`text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r ${isDark ? "from-emerald-400 to-teal-300" : "from-emerald-600 to-teal-500"} flex items-center gap-3`}>
                 {t.success} ({foundWallets.length})
@@ -816,15 +851,15 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="max-h-[600px] overflow-y-auto pr-2 custom-scrollbar space-y-8">
-              {foundWallets.map((w, idx) => (
-                <div key={w.id} className={`p-6 rounded-2xl border ${isDark ? 'border-slate-700/50 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'} relative group/item`}>
-                  <div className={`absolute top-3 left-3 w-9 h-9 rounded-full ${isDark ? 'bg-emerald-600' : 'bg-emerald-500'} text-white flex items-center justify-center font-bold text-sm shadow-lg`}>
+            <div className="max-h-[600px] overflow-y-auto py-2 pr-2 custom-scrollbar space-y-3 sm:space-y-6">
+              {foundWallets.slice(0, displayCount).map((w, idx) => (
+                <div key={w.id} className={`p-4 md:p-6 rounded-2xl border ${isDark ? 'border-slate-700/50 bg-slate-900/40' : 'border-slate-200 bg-slate-50/50'} relative group/item`}>
+                  <div className={`absolute -top-2 left-3 min-w-9 h-9 p-2 rounded-full ${isDark ? 'bg-emerald-600' : 'bg-emerald-500'} text-white flex items-center justify-center font-bold text-sm shadow-lg`}>
                     {idx + 1}
                   </div>
 
-                  <div className="grid gap-6">
-                    <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-emerald-500/30' : 'hover:border-emerald-400'}`}>
+                  <div className="grid gap-4">
+                    <div className={`${successBox} p-3 md:p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-emerald-500/30' : 'hover:border-emerald-400'}`}>
                       <div className="flex justify-between items-center mb-2">
                         <label className={`text-xs font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'} uppercase tracking-widest`}>{idx === 0 ? t.ethAddress : `${t.ethAddress} #${idx+1}`}</label>
                         <button
@@ -839,7 +874,7 @@ export default function Home() {
                       <div className={`font-mono ${addressText} text-base sm:text-lg break-all select-all font-medium`}>{w.address}</div>
                     </div>
 
-                    <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-rose-500/30' : 'hover:border-rose-400'} relative overflow-hidden`}>
+                    <div className={`${successBox} p-3 md:p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-rose-500/30' : 'hover:border-rose-400'} relative overflow-hidden`}>
                       <div className="flex justify-between items-center mb-2 relative z-10">
                         <label className={`text-xs font-bold ${isDark ? 'text-rose-400' : 'text-rose-600'} uppercase tracking-widest flex items-center gap-2`}>
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -882,7 +917,7 @@ export default function Home() {
                     </div>
 
                     {w.mnemonic && (
-                      <div className={`${successBox} p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-indigo-500/30' : 'hover:border-indigo-400'} relative overflow-hidden`}>
+                      <div className={`${successBox} p-3 md:p-5 rounded-xl shadow-inner group transition-colors ${isDark ? 'hover:border-indigo-500/30' : 'hover:border-indigo-400'} relative overflow-hidden`}>
                         <div className="flex justify-between items-center mb-2 relative z-10">
                           <label className={`text-xs font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'} uppercase tracking-widest flex items-center gap-2`}>
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -926,17 +961,8 @@ export default function Home() {
                     )}
                   </div>
 
-                  <div className="mt-4 flex gap-3">
-                    <button
-                      onClick={() => handleDownloadSeed(w)}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border ${isDark ? 'border-slate-700 hover:bg-slate-800 text-indigo-400' : 'border-slate-300 hover:bg-slate-100 text-indigo-600'} text-xs font-bold transition-all`}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      {t.downloadSeed}
-                    </button>
-                    <button
+                  <div className="mt-4 flex gap-3 flex-col sm:flex-row">
+                     <button
                       onClick={() => {
                         setSelectedWallet(w);
                         setKeystoreMode('single');
@@ -950,12 +976,32 @@ export default function Home() {
                       </svg>
                       {t.createKeystore}
                     </button>
+                    <button
+                      onClick={() => handleDownloadSeed(w)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border ${isDark ? 'border-slate-700 hover:bg-slate-800 text-indigo-400' : 'border-slate-300 hover:bg-slate-100 text-indigo-600'} text-xs font-bold transition-all`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      {t.downloadSeed}
+                    </button>
                   </div>
                 </div>
               ))}
+
+              {foundWallets.length > displayCount && (
+                <div className="pt-3 flex justify-center">
+                  <button
+                    onClick={() => setDisplayCount(prev => prev + 100)}
+                    className={`px-8 py-3 rounded-xl font-bold border-2 transition-all transform hover:scale-105 active:scale-95 shadow-lg ${isDark ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                  >
+                    {t.seeMore}
+                  </button>
+                </div>
+              )}
             </div>
 
-            <p className={`text-rose-500/90 text-sm font-semibold text-center mt-6`}>{t.securityWarning}</p>
+            <p className={`text-rose-500/90 text-sm font-semibold text-center mt-4`}>{t.securityWarning}</p>
           </div>
         )}
 
@@ -977,7 +1023,7 @@ export default function Home() {
 
 
         {/* Disclaimer */}
-        <div className={`mt-12 ${isDark ? 'bg-slate-900/60 border-amber-900/40 shadow-xl' : 'bg-amber-50/80 border-amber-200 shadow-md'} rounded-xl flex flex-col sm:flex-row p-6 border mx-auto backdrop-blur-sm transition-colors duration-300`}>
+        <div className={`mt-8 md:mt-12 ${isDark ? 'bg-slate-900/60 border-amber-900/40 shadow-xl' : 'bg-amber-50/80 border-amber-200 shadow-md'} rounded-xl flex flex-col sm:flex-row p-4 md:p-6 border mx-auto backdrop-blur-sm transition-colors duration-300`}>
           <div className="text-amber-500 mb-4 sm:mb-0 sm:mr-6 flex-shrink-0 flex items-center justify-center bg-amber-500/10 w-14 h-14 rounded-full">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -992,12 +1038,12 @@ export default function Home() {
         </div>
 
         {/* Footer */}
-        <footer className={`mt-16 py-6 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'} flex flex-col md:flex-row justify-between items-center gap-6 mx-auto w-full transition-colors duration-300`}>
-          <div className="flex items-center gap-2 text-sm font-medium">
+        <footer className={`mt-10 md:mt-16 py-4 md:py-6 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'} flex flex-col md:flex-row justify-between items-center gap-6 mx-auto w-full transition-colors duration-300`}>
+          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
             <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>{t.donate}</span>
             <button
               onClick={() => copyToClipboard("0x42863a74164440f3384cA82394e891bDb9888888", t.copiedDonate)}
-              className={`font-mono text-sm tracking-wide transition-colors focus:outline-none ${isDark ? 'text-emerald-400 hover:text-emerald-300' : 'text-emerald-600 hover:text-emerald-500'}`}
+              className={`font-mono text-sm tracking-wide transition-colors focus:outline-none break-all ${isDark ? 'text-emerald-400 hover:text-emerald-300' : 'text-emerald-600 hover:text-emerald-500'}`}
               title="Click to copy donate address"
             >
               0x42863a74164440f3384cA82394e891bDb9888888
@@ -1079,23 +1125,43 @@ export default function Home() {
                 autoFocus
                 className={`w-full px-4 py-3 mb-4 rounded-lg border outline-none transition-all focus:ring-2 focus:ring-indigo-500 ${isDark ? 'bg-slate-900 border-slate-600 text-slate-100' : 'bg-slate-50 border-slate-300 text-slate-800'}`}
               />
-              <button
-                type="submit"
-                disabled={isEncrypting || !keystorePassword || keystorePassword.length < 6}
-                className={`w-full py-3 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:bg-slate-700 disabled:text-slate-500' : 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:bg-slate-300 disabled:text-slate-500'}`}
-              >
-                {isEncrypting ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {encryptProgressText || t.encrypting}
-                  </>
-                ) : (
-                  t.createDownload
-                )}
-              </button>
+              {isEncrypting ? (
+                <div className={`w-full py-6 rounded-2xl border transition-all flex flex-col items-center justify-center gap-4 ${isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex flex-col items-center gap-3 px-4 text-center">
+                    <div className={`p-3 rounded-full ${isDark ? 'bg-indigo-500/20 text-indigo-400' : 'bg-indigo-100 text-indigo-600'}`}>
+                      <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    </div>
+                    <div className="space-y-1">
+                      <p className={`text-sm font-bold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+                        {encryptProgressText || t.encrypting}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
+                        {t.dontCloseTab}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      abortEncryptRef.current = true;
+                    }}
+                    className="px-6 py-2 rounded-full text-[10px] font-black bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all uppercase tracking-[0.2em] border border-rose-500/20"
+                  >
+                    {t.stopEncrypt}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!keystorePassword || keystorePassword.length < 6}
+                  className={`w-full py-3 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:bg-slate-700 disabled:text-slate-500' : 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:bg-slate-300 disabled:text-slate-500'}`}
+                >
+                  {t.createDownload}
+                </button>
+              )}
             </form>
           </div>
         </div>
