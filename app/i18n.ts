@@ -61,7 +61,13 @@ export const translations = {
     foundWallets: "Found Wallets",
     downloadAll: "Download All (.txt)",
     zipKeystores: "Download Keystores (ZIP)",
-    publicKey: "Public Key"
+    publicKey: "Public Key",
+    infiniteWarningTitle: "Infinite Generation Warning",
+    infiniteWarningDesc: "Enabling infinite generation will run the search continuously until manually stopped. This can cause high CPU usage, heat, and potential system lag or battery drain on mobile devices. Are you sure you want to proceed?",
+    confirmProceed: "Yes, I understand",
+    cancel: "Cancel",
+    wallets: "wallets",
+    dontShowAgain: "Don't show this again"
   },
   vi: {
     title: "PKey ETH - Tạo địa chỉ Ethereum theo ý muốn",
@@ -123,6 +129,12 @@ export const translations = {
     foundWallets: "Danh sách ví tìm thấy",
     downloadAll: "Tải xuống tất cả (.txt)",
     zipKeystores: "Tải Keystore (ZIP)",
-    publicKey: "Khóa công khai (Public Key)"
+    publicKey: "Khóa công khai (Public Key)",
+    infiniteWarningTitle: "Cảnh báo Tìm kiếm Vô hạn",
+    infiniteWarningDesc: "Việc bật chế độ tìm kiếm vô hạn sẽ khiến ứng dụng chạy liên tục cho đến khi bạn dừng thủ công. Điều này có thể gây tiêu tốn CPU cao, làm nóng máy, gây giật lag hoặc nhanh hết pin. Bạn có chắc muốn tiếp tục?",
+    confirmProceed: "Tôi đã hiểu và tiếp tục",
+    cancel: "Hủy bỏ",
+    wallets: "ví",
+    dontShowAgain: "Không nhắc lại nữa"
   }
 };

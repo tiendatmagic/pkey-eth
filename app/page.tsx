@@ -82,6 +82,9 @@ export default function Home() {
   const [encryptProgressText, setEncryptProgressText] = useState("");
   const [keystorePassword, setKeystorePassword] = useState("");
   const [isEncrypting, setIsEncrypting] = useState(false);
+  const [showInfiniteWarning, setShowInfiniteWarning] = useState(false);
+  const [persistentSkipWarning, setPersistentSkipWarning] = useState(false);
+  const [modalCheckbox, setModalCheckbox] = useState(true);
   const [selectedWallet, setSelectedWallet] = useState<any>(null);
 
   const t = translations[lang];
@@ -113,6 +116,11 @@ export default function Home() {
     const savedLang = localStorage.getItem("lang") as Language;
     if (savedLang && (savedLang === 'en' || savedLang === 'vi')) {
       setLang(savedLang);
+    }
+
+    const savedSkip = localStorage.getItem("skipInfiniteWarning");
+    if (savedSkip === "true") {
+      setPersistentSkipWarning(true);
     }
   }, []);
 
@@ -547,38 +555,49 @@ export default function Home() {
 
               <div className="mb-6">
                 <label className={`block text-xs font-bold ${textMuted} uppercase tracking-widest mb-3`}>{t.walletCount}</label>
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className={`flex w-full sm:w-auto items-center ${isDark ? 'bg-slate-900/80' : 'bg-slate-100'} rounded-lg p-1 border ${subtleBorder} select-none`}>
+                <div className="flex flex-wrap items-center gap-4 flex-col sm:flex-row">
+                  <div className={`flex w-auto items-center ${isDark ? 'bg-slate-900/80 shadow-inner' : 'bg-slate-50 shadow-sm'} rounded-xl p-1.5 border ${subtleBorder} select-none h-[52px]`}>
                     <button
                       type="button"
                       onClick={() => setWalletCount(walletCount === "" ? 1 : Math.max(1, Number(walletCount) - 1))}
                       disabled={running || walletCount === ""}
-                      className={`w-12 h-10 flex items-center justify-center rounded ${btnIconBg} text-lg transition-colors disabled:opacity-50 font-bold`}
+                      className={`w-10 h-10 flex items-center justify-center rounded-lg ${btnIconBg} text-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 shadow-sm`}
                     >
                       -
                     </button>
-                    <input
-                      type="number"
-                      min={1}
-                      value={walletCount}
-                      onChange={(e) => setWalletCount(e.target.value === "" ? "" : Math.max(1, parseInt(e.target.value)))}
-                      disabled={running || walletCount === ""}
-                      className={`w-24 text-center px-2 py-2 bg-transparent outline-none ${textMain} disabled:opacity-50 text-xl font-bold font-mono [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none`}
-                    />
+                    <div className="px-8 text-center min-w-[120px]">
+                      {walletCount === "" ? (
+                        <span className={`text-2xl font-black ${isDark ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-emerald-600'}`}>∞</span>
+                      ) : (
+                        <span className={`text-2xl font-black ${isDark ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-emerald-600'}`}>{walletCount}</span>
+                      )}
+                      <span className={`text-[11px] ${textMuted} block -mt-1 font-extrabold uppercase tracking-widest`}>{t.wallets}</span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setWalletCount(walletCount === "" ? 1 : Number(walletCount) + 1)}
                       disabled={running || walletCount === ""}
-                      className={`w-12 h-10 flex items-center justify-center rounded ${btnIconBg} text-lg transition-colors disabled:opacity-50 font-bold`}
+                      className={`w-10 h-10 flex items-center justify-center rounded-lg ${btnIconBg} text-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 shadow-sm`}
                     >
                       +
                     </button>
                   </div>
-                  <label className={`flex flex-1 sm:flex-none justify-center items-center cursor-pointer ${isDark ? 'bg-slate-800/80 border-slate-700 hover:border-slate-500' : 'bg-white border-slate-300 hover:border-slate-400'} px-5 py-2.5 rounded-lg border transition-all h-[48px] shadow-sm`}>
+                  <label className={`flex flex-1 sm:flex-none justify-center items-center cursor-pointer ${isDark ? 'bg-slate-800/80 border-slate-700 hover:border-slate-500' : 'bg-white border-slate-300 hover:border-slate-400'} px-5 py-2.5 rounded-lg border transition-all h-[52px] shadow-sm`}>
                     <input
                       type="checkbox"
                       checked={walletCount === ""}
-                      onChange={(e) => setWalletCount(e.target.checked ? "" : 1)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          if (persistentSkipWarning) {
+                            setWalletCount("");
+                          } else {
+                            setModalCheckbox(true);
+                            setShowInfiniteWarning(true);
+                          }
+                        } else {
+                          setWalletCount(1);
+                        }
+                      }}
                       disabled={running}
                       className={`w-5 h-5 text-emerald-500 ${isDark ? 'bg-slate-900 border-slate-600' : 'bg-white border-slate-300'} rounded focus:ring-emerald-500 focus:ring-offset-0`}
                     />
@@ -632,32 +651,32 @@ export default function Home() {
                 </label>
 
                 <div className="flex flex-col items-end gap-2">
-                  <div className={`flex items-center ${isDark ? 'bg-slate-900/80' : 'bg-slate-100'} rounded-lg p-1 border ${subtleBorder} select-none`}>
+                  <div className={`flex w-full sm:w-auto items-center ${isDark ? 'bg-slate-900/80 shadow-inner' : 'bg-slate-50 shadow-sm'} rounded-xl p-1.5 border ${subtleBorder} select-none h-[52px]`}>
                     <button
                       type="button"
                       onClick={() => setThreads(Math.max(1, threads - 1))}
                       disabled={running}
-                      className={`w-8 h-8 flex items-center justify-center rounded ${btnIconBg} text-lg transition-colors disabled:opacity-50`}
+                      className={`w-10 h-10 flex items-center justify-center rounded-lg ${btnIconBg} text-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 shadow-sm`}
                     >
                       -
                     </button>
-                    <div className="px-4 text-center">
-                      <span className={`text-xl font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{threads}</span>
-                      <span className={`text-xs ${textMuted} block -mt-1 font-medium`}>{t.threads}</span>
+                    <div className="px-8 text-center min-w-[120px]">
+                      <span className={`text-2xl font-black ${isDark ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-emerald-600'}`}>{threads}</span>
+                      <span className={`text-[11px] ${textMuted} block -mt-1 font-extrabold uppercase tracking-widest`}>{t.threads}</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setThreads(Math.min(maxCores, threads + 1))}
                       disabled={running || threads >= maxCores}
-                      className={`w-8 h-8 flex items-center justify-center rounded ${btnIconBg} text-lg transition-colors disabled:opacity-50`}
+                      className={`w-10 h-10 flex items-center justify-center rounded-lg ${btnIconBg} text-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 shadow-sm`}
                     >
                       +
                     </button>
                   </div>
-                  <div className="flex gap-2">
-                    <button type="button" disabled={running} onClick={() => setThreads(Math.max(1, Math.floor(maxCores / 3)))} className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1.5 rounded border ${isDark ? 'border-slate-700 hover:bg-slate-700 text-slate-400' : 'border-slate-300 hover:bg-slate-200 text-slate-500'} transition-colors disabled:opacity-50`}>Low</button>
-                    <button type="button" disabled={running} onClick={() => setThreads(Math.max(1, Math.floor(maxCores / 2)))} className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1.5 rounded border ${isDark ? 'border-slate-700 hover:bg-slate-700 text-slate-400' : 'border-slate-300 hover:bg-slate-200 text-slate-500'} transition-colors disabled:opacity-50`}>Medium</button>
-                    <button type="button" disabled={running} onClick={() => setThreads(maxCores)} className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1.5 rounded border ${isDark ? 'border-emerald-700/50 hover:bg-emerald-900/30 text-emerald-400' : 'border-emerald-300 hover:bg-emerald-100 text-emerald-600'} transition-colors disabled:opacity-50`}>High</button>
+                  <div className="flex gap-2.5 w-full justify-center items-center">
+                    <button type="button" disabled={running} onClick={() => setThreads(Math.max(1, Math.floor(maxCores / 3)))} className={`text-[12px] uppercase tracking-widest font-black px-3 py-2 rounded-lg border ${isDark ? 'border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-400' : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-500 shadow-sm'} transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100`}>Low</button>
+                    <button type="button" disabled={running} onClick={() => setThreads(Math.max(1, Math.floor(maxCores / 2)))} className={`text-[12px] uppercase tracking-widest font-black px-3 py-2 rounded-lg border ${isDark ? 'border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-400' : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-500 shadow-sm'} transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100`}>Medium</button>
+                    <button type="button" disabled={running} onClick={() => setThreads(maxCores)} className={`text-[12px] uppercase tracking-widest font-black px-3 py-2 rounded-lg border ${isDark ? 'border-emerald-700/50 bg-emerald-900/20 hover:bg-emerald-800/40 text-emerald-400' : 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 shadow-sm'} transition-all hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100`}>High</button>
                   </div>
                 </div>
               </div>
@@ -666,14 +685,14 @@ export default function Home() {
                 <button
                   onClick={startGen}
                   disabled={running || !isInputValid}
-                  className="w-full bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:shadow-emerald-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
+                  className="w-full bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold h-[52px] px-4 rounded-lg shadow-lg hover:shadow-emerald-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-none"
                 >
                   {t.generate}
                 </button>
                 <button
                   onClick={stopGen}
                   disabled={!running}
-                  className={`w-full ${stopBg} font-bold py-3 px-4 rounded-lg shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-none`}
+                  className={`w-full ${stopBg} font-bold h-[52px] px-4 rounded-lg shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-none`}
                 >
                   {t.stop}
                 </button>
@@ -768,7 +787,7 @@ export default function Home() {
           <div className={`mt-8 ${cardBg} rounded-2xl ${isDark ? "shadow-[0_0_40px_rgba(16,185,129,0.15)]" : "shadow-xl border-emerald-300"} p-6 md:p-8 border ${isDark ? "border-emerald-500/50" : "border-emerald-400"} backdrop-blur-sm animate-[fadeIn_0.5s_ease-out] transition-colors duration-300`}>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
               <h2 className={`text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r ${isDark ? "from-emerald-400 to-teal-300" : "from-emerald-600 to-teal-500"} flex items-center gap-3`}>
-                SUCCESS ({foundWallets.length})
+                {t.success} ({foundWallets.length})
               </h2>
               <div className="flex flex-wrap items-center gap-3">
                  <button
@@ -1078,6 +1097,63 @@ export default function Home() {
                 )}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Infinite Warning Modal */}
+      {showInfiniteWarning && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]"
+          onClick={() => setShowInfiniteWarning(false)}
+        >
+          <div
+            className={`${isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'} border rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-lg relative animate-[scaleIn_0.2s_ease-out]`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-amber-500 mb-6 flex justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold mb-4 text-center">{t.infiniteWarningTitle}</h3>
+            <p className={`text-center mb-6 ${isDark ? 'text-slate-400' : 'text-slate-600'} leading-relaxed`}>
+              {t.infiniteWarningDesc}
+            </p>
+
+            <label className="flex items-center justify-center mb-8 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={modalCheckbox}
+                onChange={(e) => setModalCheckbox(e.target.checked)}
+                className={`w-5 h-5 text-emerald-500 ${isDark ? 'bg-slate-900 border-slate-600' : 'bg-white border-slate-300'} rounded focus:ring-emerald-500 focus:ring-offset-0`}
+              />
+              <span className={`ml-3 font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'} group-hover:text-emerald-500 transition-colors`}>
+                {t.dontShowAgain}
+              </span>
+            </label>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setShowInfiniteWarning(false)}
+                className={`py-3 px-4 rounded-xl font-bold border ${isDark ? 'border-slate-700 hover:bg-slate-700 text-slate-400' : 'border-slate-200 hover:bg-slate-100 text-slate-500'} transition-all`}
+              >
+                {t.cancel}
+              </button>
+              <button
+                onClick={() => {
+                  if (modalCheckbox) {
+                    setPersistentSkipWarning(true);
+                    localStorage.setItem("skipInfiniteWarning", "true");
+                  }
+                  setWalletCount("");
+                  setShowInfiniteWarning(false);
+                }}
+                className="py-3 px-4 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 transition-all"
+              >
+                {t.confirmProceed}
+              </button>
+            </div>
           </div>
         </div>
       )}
