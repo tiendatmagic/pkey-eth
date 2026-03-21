@@ -51,8 +51,9 @@ const shuffleString = (str: string) => {
 };
 
 export default function Home() {
-  const [prefix, setPrefix] = useState("");
-  const [suffix, setSuffix] = useState("");
+  const [conditions, setConditions] = useState<{ prefix: string; suffix: string; id: number }[]>([
+    { prefix: "", suffix: "", id: Date.now() }
+  ]);
   const [checksum, setChecksum] = useState(true);
 
   const [running, setRunning] = useState(false);
@@ -135,9 +136,10 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const len = Math.max(0, 40 - (prefix.length + suffix.length));
+    const firstCond = conditions[0] || { prefix: "", suffix: "" };
+    const len = Math.max(0, 40 - (firstCond.prefix.length + firstCond.suffix.length));
     setExampleHex(generateRandomHex(len));
-  }, [prefix, suffix]);
+  }, [conditions]);
 
   useEffect(() => {
     let animationFrameId: number;
@@ -260,8 +262,15 @@ export default function Home() {
       return;
     }
 
-    const cleanPrefix = prefix.trim();
-    const cleanSuffix = suffix.trim();
+    const cleanConditions = conditions.map(c => ({
+      prefix: c.prefix.trim(),
+      suffix: c.suffix.trim()
+    })).filter(c => c.prefix || c.suffix);
+
+    if (cleanConditions.length === 0) {
+      setError("Please enter at least one prefix or suffix.");
+      return;
+    }
 
     terminateWorkers();
 
@@ -282,8 +291,7 @@ export default function Home() {
     initWorkers();
 
     const inputMsg = {
-      prefix: cleanPrefix,
-      suffix: cleanSuffix,
+      conditions: cleanConditions,
       checksum,
       mode: genMode,
       mnemonicLength,
@@ -428,11 +436,48 @@ export default function Home() {
     showToast(`${foundWallets.length} Wallets Downloaded!`);
   };
 
-  const isInputValid = (!prefix || prefix.match(/^[0-9a-fA-F]*$/)) && (!suffix || suffix.match(/^[0-9a-fA-F]*$/)) && (prefix.length + suffix.length <= 40);
-  const difficulty = isInputValid && (prefix || suffix) ? computeDifficulty(prefix, suffix, checksum) : 1;
+  const addCondition = () => {
+    if (conditions.length >= 10) return; // Limit to 10 conditions for stability
+    setConditions([...conditions, { prefix: "", suffix: "", id: Date.now() + Math.random() }]);
+  };
+
+  const removeCondition = (id: number) => {
+    if (conditions.length <= 1) return;
+    setConditions(conditions.filter(c => c.id !== id));
+  };
+
+  const updateCondition = (id: number, field: 'prefix' | 'suffix', value: string) => {
+    setConditions(conditions.map(c => {
+      if (c.id === id) {
+        const otherField = field === 'prefix' ? 'suffix' : 'prefix';
+        const maxLength = 40 - c[otherField].length;
+        const cleanedValue = value.replace(/[^0-9a-fA-F]/g, '').slice(0, maxLength);
+        return { ...c, [field]: cleanedValue };
+      }
+      return c;
+    }));
+  };
+
+  const isInputValid = conditions.every(c => 
+    (!c.prefix || c.prefix.match(/^[0-9a-fA-F]*$/)) && 
+    (!c.suffix || c.suffix.match(/^[0-9a-fA-F]*$/)) && 
+    (c.prefix.length + c.suffix.length <= 40)
+  ) && conditions.some(c => c.prefix || c.suffix);
+
+  const computeConditionsDifficulty = () => {
+    let totalInvDifficulty = 0;
+    for (const c of conditions) {
+      if (!c.prefix && !c.suffix) continue;
+      const d = computeDifficulty(c.prefix, c.suffix, checksum);
+      totalInvDifficulty += (1 / d);
+    }
+    return totalInvDifficulty > 0 ? 1 / totalInvDifficulty : 1;
+  };
+
+  const difficulty = isInputValid ? computeConditionsDifficulty() : 1;
   const prob50Addresses = difficulty > 1 ? Math.floor(Math.log(0.5) / Math.log(1 - 1 / difficulty)) : 0;
   const time50 = keysPerSec > 0 && prob50Addresses > 0 ? humanizeDuration(prob50Addresses / keysPerSec) : "N/A";
-  const currentProbability = (prefix || suffix) && difficulty > 1 ? Math.round(10000 * computeProbability(difficulty, attempts)) / 100 : 100;
+  const currentProbability = isInputValid && difficulty > 1 ? Math.round(10000 * computeProbability(difficulty, attempts)) / 100 : 100;
 
   const displayDifficulty = !isInputValid ? "N/A" : difficulty === 1 ? 1 : formatNum(difficulty);
   const displayAdresses50 = !isInputValid || difficulty === 1
@@ -651,35 +696,63 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                <div>
-                  <input
-                    type="text"
-                    value={prefix}
-                    maxLength={Math.max(0, 40 - suffix.length)}
-                    onChange={(e) => setPrefix(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
+              <div className="space-y-4 mb-6">
+                <label className={`block text-xs font-bold ${textMuted} uppercase tracking-widest`}>{t.conditions}</label>
+                {conditions.map((condition, index) => (
+                  <div key={condition.id} className="flex gap-3 items-center group/item">
+                    <div className="grid grid-cols-2 gap-3 flex-1">
+                      <input
+                        type="text"
+                        value={condition.prefix}
+                        onChange={(e) => updateCondition(condition.id, 'prefix', e.target.value)}
+                        disabled={running}
+                        placeholder={t.prefixPlaceholder}
+                        className={`w-full px-4 py-2.5 ${inputBg} border ${inputBorder} rounded-lg ${inputActive} ${textMain} disabled:opacity-50 text-base transition-all shadow-sm`}
+                      />
+                      <input
+                        type="text"
+                        value={condition.suffix}
+                        onChange={(e) => updateCondition(condition.id, 'suffix', e.target.value)}
+                        disabled={running}
+                        placeholder={t.suffixPlaceholder}
+                        className={`w-full px-4 py-2.5 ${inputBg} border ${inputBorder} rounded-lg ${inputActive} ${textMain} disabled:opacity-50 text-base transition-all shadow-sm`}
+                      />
+                    </div>
+                    {conditions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeCondition(condition.id)}
+                        disabled={running}
+                        className={`p-2.5 rounded-lg border ${isDark ? 'border-rose-900/30 bg-rose-900/10 text-rose-400 hover:bg-rose-900/20' : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'} transition-all opacity-0 group-hover/item:opacity-100 disabled:opacity-30`}
+                        title={t.removeCondition}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+                
+                {conditions.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={addCondition}
                     disabled={running}
-                    placeholder={t.prefixPlaceholder}
-                    className={`w-full px-4 py-3 ${inputBg} border ${inputBorder} rounded-lg ${inputActive} ${textMain} disabled:opacity-50 text-lg transition-all shadow-sm`}
-                  />
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    value={suffix}
-                    maxLength={Math.max(0, 40 - prefix.length)}
-                    onChange={(e) => setSuffix(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
-                    disabled={running}
-                    placeholder={t.suffixPlaceholder}
-                    className={`w-full px-4 py-3 ${inputBg} border ${inputBorder} rounded-lg ${inputActive} ${textMain} disabled:opacity-50 text-lg transition-all shadow-sm`}
-                  />
-                </div>
+                    className={`w-full py-2 border-2 border-dashed ${isDark ? 'border-slate-700 text-slate-500 hover:border-emerald-500/50 hover:text-emerald-400 hover:bg-emerald-500/5' : 'border-slate-200 text-slate-400 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50'} rounded-lg transition-all font-bold flex items-center justify-center gap-2 group`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 group-hover:scale-110 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                    {t.addCondition}
+                  </button>
+                )}
               </div>
 
               <div className={`text-center ${textMuted} mb-6 ${isDark ? "bg-slate-900/50" : "bg-slate-100"} py-3 px-2 rounded-lg border ${subtleBorder} w-full overflow-hidden flex flex-col items-center justify-center`}>
                 <span className="mb-1 text-sm font-semibold">{t.eg}</span>
                 <span className={`font-mono px-3 py-1.5 rounded border ${codeBox} break-all word-break text-[0.95rem] tracking-wide inline-block max-w-full leading-relaxed`}>
-                  0x{prefix}<span className="opacity-50">{exampleHex}</span>{suffix}
+                  0x{conditions[0]?.prefix || ""}<span className="opacity-50">{exampleHex}</span>{conditions[0]?.suffix || ""}
                 </span>
               </div>
 

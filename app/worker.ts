@@ -55,18 +55,28 @@ const isValidChecksum = (address: string, prefix: string, suffix: string): boole
   return true;
 };
 
-const isValidVanityAddress = (address: string, prefix: string, suffix: string, isChecksum: boolean): boolean => {
-  const addressPrefix = address.substring(0, prefix.length);
-  const addressSuffix = address.substring(40 - suffix.length);
+interface Condition {
+  prefix: string;
+  suffix: string;
+}
 
-  if (!isChecksum) {
-    return prefix === addressPrefix && suffix === addressSuffix;
-  }
-  if (prefix.toLowerCase() !== addressPrefix || suffix.toLowerCase() !== addressSuffix) {
-    return false;
+const isValidVanityAddress = (address: string, conditions: Condition[], isChecksum: boolean): boolean => {
+  for (const condition of conditions) {
+    const { prefix, suffix } = condition;
+    const addressPrefix = address.substring(0, prefix.length);
+    const addressSuffix = address.substring(40 - suffix.length);
+
+    if (!isChecksum) {
+      if (prefix === addressPrefix && suffix === addressSuffix) return true;
+      continue;
+    }
+
+    if (prefix.toLowerCase() === addressPrefix && suffix.toLowerCase() === addressSuffix) {
+      if (isValidChecksum(address, prefix, suffix)) return true;
+    }
   }
 
-  return isValidChecksum(address, prefix, suffix);
+  return false;
 };
 
 const toChecksumAddress = (address: string): string => {
@@ -78,16 +88,19 @@ const toChecksumAddress = (address: string): string => {
   return ret;
 };
 
-const getVanityWallet = (prefix: string, suffix: string, isChecksum: boolean, mode: string, mnemonicLength: number, passphrase: string, cb: (msg: any) => void) => {
-  const pre = isChecksum ? prefix : prefix.toLowerCase();
-  const suf = isChecksum ? suffix : suffix.toLowerCase();
+const getVanityWallet = (conditions: Condition[], isChecksum: boolean, mode: string, mnemonicLength: number, passphrase: string, cb: (msg: any) => void) => {
+  const normalizedConditions = conditions.map(c => ({
+    prefix: isChecksum ? c.prefix : c.prefix.toLowerCase(),
+    suffix: isChecksum ? c.suffix : c.suffix.toLowerCase()
+  }));
+
   const currentStep = mode === 'seedPhrase' ? 50 : 25000;
 
   while (true) {
     let wallet = getRandomWallet(mode, mnemonicLength, passphrase);
     let attempts = 1;
 
-    while (!isValidVanityAddress(wallet.address, pre, suf, isChecksum)) {
+    while (!isValidVanityAddress(wallet.address, normalizedConditions, isChecksum)) {
       if (attempts >= currentStep) {
         cb({ attempts });
         attempts = 0;
@@ -103,11 +116,13 @@ const getVanityWallet = (prefix: string, suffix: string, isChecksum: boolean, mo
 self.onmessage = function (event: MessageEvent) {
   const input = event.data;
   try {
-    getVanityWallet(input.prefix, input.suffix, input.checksum, input.mode, input.mnemonicLength, input.passphrase, (message: any) => {
+    const conditions = input.conditions || [{ prefix: input.prefix, suffix: input.suffix }];
+    getVanityWallet(conditions, input.checksum, input.mode, input.mnemonicLength, input.passphrase, (message: any) => {
       self.postMessage(message);
     });
   } catch (err: any) {
     self.postMessage({ error: err.toString() });
   }
 };
+
 

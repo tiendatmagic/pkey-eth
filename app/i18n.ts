@@ -70,7 +70,10 @@ export const translations = {
     dontShowAgain: "Don't show this again",
     seeMore: "See more (+100 wallets)",
     stopEncrypt: "Stop Encryption",
-    dontCloseTab: "Please do not close or refresh this tab"
+    dontCloseTab: "Please do not close or refresh this tab",
+    addCondition: "Add Condition",
+    removeCondition: "Remove",
+    conditions: "Conditions"
   },
   vi: {
     title: "PKey ETH - Tạo địa chỉ Ethereum theo ý muốn",
@@ -141,6 +144,9 @@ export const translations = {
     dontShowAgain: "Không nhắc lại nữa",
     seeMore: "Xem thêm (+100 ví)",
     stopEncrypt: "Dừng xử lý",
-    dontCloseTab: "Vui lòng không đóng hoặc tải lại trang này"
+    dontCloseTab: "Vui lòng không đóng hoặc tải lại trang này",
+    addCondition: "Thêm điều kiện",
+    removeCondition: "Xóa",
+    conditions: "Điều kiện"
   }
 };
