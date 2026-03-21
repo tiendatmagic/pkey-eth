@@ -1,4 +1,4 @@
-﻿export type Language = 'en' | 'vi';
+export type Language = 'en' | 'vi';
 
 export const translations = {
   en: {
@@ -60,6 +60,7 @@ export const translations = {
     infinite: "Infinite",
     foundWallets: "Found Wallets",
     downloadAll: "Download Seed Phrases (.txt)",
+    exportCSV: "Export to CSV",
     zipKeystores: "Download Keystores (ZIP)",
     publicKey: "Public Key",
     infiniteWarningTitle: "Infinite Generation Warning",
@@ -144,6 +145,7 @@ export const translations = {
     infinite: "Vô hạn",
     foundWallets: "Danh sách ví tìm thấy",
     downloadAll: "Tải seed phrases (.txt)",
+    exportCSV: "Xuất file CSV",
     zipKeystores: "Tải keystores (ZIP)",
     publicKey: "Public Key",
     infiniteWarningTitle: "Cảnh báo tìm vô hạn",

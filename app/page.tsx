@@ -126,6 +126,15 @@ export default function Home() {
   const foundCountRef = useRef<number>(0);
   const foundWalletsBufferRef = useRef<any[]>([]);
   const abortEncryptRef = useRef<boolean>(false);
+  const keystorePasswordRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showKeystoreModal && keystorePasswordRef.current) {
+      setTimeout(() => {
+        keystorePasswordRef.current?.focus();
+      }, 100);
+    }
+  }, [showKeystoreModal]);
 
   const showToast = (message: string) => {
     const id = toastIdRef.current++;
@@ -496,6 +505,25 @@ export default function Home() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast(`${foundWallets.length} Wallets Downloaded!`);
+  };
+
+  const handleDownloadCSV = () => {
+    if (foundWallets.length === 0) return;
+    let csvContent = "Address,Private Key,Mnemonic,Public Key\n";
+    foundWallets.forEach((w) => {
+      csvContent += `${w.address},${w.privKey},${w.mnemonic || ""},${w.publicKey}\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `eth-wallets-export-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`${foundWallets.length} Wallets Downloaded as CSV!`);
   };
 
   const addCondition = () => {
@@ -1403,6 +1431,21 @@ export default function Home() {
                   </svg>
                   {t.downloadAll}
                 </button>
+                <button
+                  onClick={handleDownloadCSV}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 ${isDark ? "border-emerald-500/50 hover:bg-emerald-500/20 text-emerald-300" : "border-emerald-400 hover:bg-emerald-50 text-emerald-700"} font-bold transition-all text-sm`}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {t.exportCSV}
+                </button>
               </div>
             </div>
 
@@ -1946,7 +1989,7 @@ export default function Home() {
                 onChange={(e) => setKeystorePassword(e.target.value)}
                 placeholder={t.enterPass}
                 disabled={isEncrypting}
-                autoFocus
+                ref={keystorePasswordRef}
                 className={`w-full px-4 py-3 mb-4 rounded-lg border outline-none transition-all focus:ring-2 focus:ring-indigo-500 ${isDark ? "bg-slate-900 border-slate-600 text-slate-100" : "bg-slate-50 border-slate-300 text-slate-800"}`}
               />
               {isEncrypting ? (

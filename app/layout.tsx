@@ -15,6 +15,7 @@ const robotoMono = Roboto_Mono({
 export const metadata: Metadata = {
   title: "PKey ETH - Generate customized Ethereum addresses",
   description: "Secure, client-side Ethereum vanity address generator.",
+  manifest: "/manifest.json",
   icons: {
     icon: "/favicon.png",
     apple: "/logo.png",
