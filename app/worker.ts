@@ -14,12 +14,14 @@ const privateToAddress = (privateKey: Uint8Array): string => {
   return createKeccakHash('keccak256').update(Buffer.from(pub)).digest().slice(-20).toString('hex');
 };
 
+const ETH_DEFAULT_PATH = "m/44'/60'/0'/0/0";
+
 const getRandomWallet = (mode: string, mnemonicLength: number, passphrase?: string) => {
   if (mode === 'seedPhrase') {
     const entropySize = mnemonicLength === 12 ? 16 : mnemonicLength === 15 ? 20 : mnemonicLength === 18 ? 24 : mnemonicLength === 21 ? 28 : 32;
     const entropy = randomBytes(entropySize);
-    const mnemonic = Mnemonic.fromEntropy(entropy);
-    const wallet = HDNodeWallet.fromMnemonic(mnemonic, passphrase);
+    const mnemonic = Mnemonic.fromEntropy(entropy, passphrase ?? '');
+    const wallet = HDNodeWallet.fromMnemonic(mnemonic, ETH_DEFAULT_PATH);
     return {
       address: wallet.address.substring(2).toLowerCase(),
       privKey: wallet.privateKey.substring(2).toLowerCase(),
@@ -38,7 +40,7 @@ const getRandomWallet = (mode: string, mnemonicLength: number, passphrase?: stri
 
 const isValidChecksum = (address: string, prefix: string, suffix: string): boolean => {
   const hash = createKeccakHash('keccak256').update(Buffer.from(address)).digest().toString('hex');
-  
+
   for (let i = 0; i < prefix.length; i++) {
     if (prefix[i] !== (parseInt(hash[i], 16) >= 8 ? address[i].toUpperCase() : address[i])) {
       return false;
