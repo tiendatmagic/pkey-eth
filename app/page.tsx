@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Wallet } from "ethers";
 import * as JSZipModule from "jszip";
+import { QRCodeSVG } from "qrcode.react";
 import { translations, Language } from "./i18n";
 
 const JSZip = (JSZipModule as any).default || JSZipModule;
@@ -99,6 +100,7 @@ export default function Home() {
   );
   const [mnemonicLength, setMnemonicLength] = useState<number>(12);
   const [timeElapsed, setTimeElapsed] = useState(0);
+  const [isOffline, setIsOffline] = useState(false);
 
   const [usePassphrase, setUsePassphrase] = useState(false);
   const [passphrase, setPassphrase] = useState("");
@@ -112,6 +114,7 @@ export default function Home() {
   const [encryptProgressText, setEncryptProgressText] = useState("");
   const [keystorePassword, setKeystorePassword] = useState("");
   const [isEncrypting, setIsEncrypting] = useState(false);
+  const [qrModalAddress, setQrModalAddress] = useState<string | null>(null);
   const [showInfiniteWarning, setShowInfiniteWarning] = useState(false);
   const [persistentSkipWarning, setPersistentSkipWarning] = useState(false);
   const [modalCheckbox, setModalCheckbox] = useState(true);
@@ -136,6 +139,21 @@ export default function Home() {
       }, 100);
     }
   }, [showKeystoreModal]);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsOffline(!navigator.onLine);
+    }
+    const handleOffline = () => setIsOffline(true);
+    const handleOnline = () => setIsOffline(false);
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
 
   const showToast = (message: string) => {
     const id = toastIdRef.current++;
@@ -248,13 +266,13 @@ export default function Home() {
     }
   };
 
-  const toggleWalletVisibility = (id: number, type: "key" | "mnemonic") => {
+  const toggleWalletVisibility = (id: number, type: "key" | "mnemonic" | "qr") => {
     setFoundWallets((prev) =>
       prev.map((w) => {
         if (w.id === id) {
           if (type === "key") return { ...w, isKeyVisible: !w.isKeyVisible };
-          if (type === "mnemonic")
-            return { ...w, isMnemonicVisible: !w.isMnemonicVisible };
+          if (type === "mnemonic") return { ...w, isMnemonicVisible: !w.isMnemonicVisible };
+          if (type === "qr") return { ...w, isQrVisible: !w.isQrVisible };
         }
         return w;
       }),
@@ -290,6 +308,7 @@ export default function Home() {
         id: Date.now() + Math.random(),
         isKeyVisible: false,
         isMnemonicVisible: false,
+        isQrVisible: false,
         blurredPrivKey: shuffleString(data.privKey),
         blurredMnemonic: data.mnemonic ? shuffleString(data.mnemonic) : "",
       };
@@ -756,12 +775,20 @@ export default function Home() {
 
       <div className="max-w-7xl w-full px-4">
         <div className="text-center mb-6 md:mb-10 pt-4 flex flex-col items-center">
-          <div className="mb-3 md:mb-4 p-2 md:p-3 rounded-2xl border border-slate-700/30 backdrop-blur-sm">
+          <div className="mb-3 md:mb-4 p-2 md:p-3 rounded-2xl border border-slate-700/30 backdrop-blur-sm relative">
             <img
               src="/logo.png"
               alt="PKey ETH Logo"
-              className="h-20 w-auto rounded-lg"
+              className="h-20 w-auto rounded-lg relative z-10"
             />
+            {isOffline && (
+              <div className="absolute -top-3 -right-3 bg-emerald-500 text-white text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 rounded-full animate-pulse flex items-center gap-1.5 z-20 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                {t.offlineSafe}
+              </div>
+            )}
           </div>
           <h1
             className={`text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r ${isDark ? "from-emerald-400 to-teal-300" : "from-emerald-600 to-teal-500"} mb-3 transition-transform duration-300 inline-block pointer-events-none`}
@@ -1512,27 +1539,30 @@ export default function Home() {
                             ? t.ethAddress
                             : `${t.ethAddress} #${idx + 1}`}
                         </label>
-                        <button
-                          onClick={() =>
-                            copyToClipboard(w.address, t.copiedAddress)
-                          }
-                          className={`text-slate-400 ${isDark ? "btnIconBg p-2 rounded-lg border" : `hover:text-emerald-600 ${btnIconBg} p-2 rounded-lg border`}`}
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setQrModalAddress(w.address)}
+                            className={`text-slate-400 ${isDark ? "hover:text-indigo-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50" : "hover:text-indigo-500 bg-slate-100 hover:bg-slate-200 border-slate-200"} transition-colors p-1.5 rounded-lg border shadow-sm`}
+                            title="Show QR Code"
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                            />
-                          </svg>
-                        </button>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+                          </button>
+                          <button
+                            onClick={() => copyToClipboard(w.address, t.copiedAddress)}
+                            className={`text-slate-400 ${isDark ? "btnIconBg p-1.5 rounded-lg border shadow-sm" : `hover:text-emerald-600 ${btnIconBg} p-1.5 rounded-lg border shadow-sm`}`}
+                            title="Copy Address"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-4 w-4"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                       <div
                         className={`font-mono ${addressText} text-base sm:text-lg break-all select-all font-medium`}
@@ -1836,6 +1866,35 @@ export default function Home() {
         `,
           }}
         />
+
+      {/* QR Code Modal */}
+      {qrModalAddress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setQrModalAddress(null)}
+          ></div>
+          <div className={`relative w-full max-w-sm p-6 rounded-3xl shadow-2xl ${isDark ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200"} flex flex-col items-center`}>
+            <button
+              onClick={() => setQrModalAddress(null)}
+              className={`absolute top-4 right-4 p-2 rounded-xl transition-colors ${isDark ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"}`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <h3 className={`text-lg font-bold mb-6 mt-2 ${isDark ? "text-white" : "text-slate-900"}`}>
+              {t.ethAddress || "Ethereum Address"}
+            </h3>
+            <div className={`p-4 bg-white rounded-2xl shadow-sm mb-6 inline-block`}>
+              <QRCodeSVG value={qrModalAddress} size={220} level="M" />
+            </div>
+            <p className={`font-mono text-sm break-all text-center px-4 py-3 rounded-xl w-full font-medium ${isDark ? "bg-slate-900/50 text-emerald-400" : "bg-slate-50 border border-slate-200 text-emerald-600"}`}>
+              {qrModalAddress}
+            </p>
+          </div>
+        </div>
+      )}
 
         {/* Disclaimer */}
         <div
