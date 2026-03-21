@@ -94,7 +94,8 @@ const getVanityWallet = (conditions: Condition[], isChecksum: boolean, mode: str
     suffix: isChecksum ? c.suffix : c.suffix.toLowerCase()
   }));
 
-  const currentStep = mode === 'seedPhrase' ? 50 : 25000;
+  const currentStep = mode === 'seedPhrase' ? 20 : 1000;
+  let lastReport = Date.now();
 
   while (true) {
     let wallet = getRandomWallet(mode, mnemonicLength, passphrase);
@@ -104,6 +105,14 @@ const getVanityWallet = (conditions: Condition[], isChecksum: boolean, mode: str
       if (attempts >= currentStep) {
         cb({ attempts });
         attempts = 0;
+        lastReport = Date.now();
+      } else if ((attempts & 255) === 0) {
+        const now = Date.now();
+        if (now - lastReport > 500) {
+          cb({ attempts });
+          attempts = 0;
+          lastReport = now;
+        }
       }
       wallet = getRandomWallet(mode, mnemonicLength, passphrase);
       attempts++;
@@ -124,5 +133,4 @@ self.onmessage = function (event: MessageEvent) {
     self.postMessage({ error: err.toString() });
   }
 };
-
 
