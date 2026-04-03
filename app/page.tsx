@@ -1547,6 +1547,17 @@ export default function Home() {
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
                           </button>
+                          <a
+                            href={`https://etherscan.io/address/${w.address}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`text-slate-400 ${isDark ? "hover:text-orange-400 bg-slate-800 hover:bg-slate-700 border-slate-700/50" : "hover:text-orange-500 bg-slate-100 hover:bg-slate-200 border-slate-200"} transition-colors p-1.5 rounded-lg border shadow-sm`}
+                            title={t.viewOnExplorer}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                          </a>
                           <button
                             onClick={() => copyToClipboard(w.address, t.copiedAddress)}
                             className={`text-slate-400 ${isDark ? "btnIconBg p-1.5 rounded-lg border shadow-sm" : `hover:text-emerald-600 ${btnIconBg} p-1.5 rounded-lg border shadow-sm`}`}
