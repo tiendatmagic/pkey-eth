@@ -9,6 +9,7 @@ import { translations, Language } from "./i18n";
 const JSZip = (JSZipModule as any).default || JSZipModule;
 
 const MAX_WALLETS = 1000000000;
+const MAX_CONDITIONS = 20;
 
 const generateRandomHex = (length: number) => {
   if (length <= 0) return "";
@@ -572,7 +573,7 @@ export default function Home() {
   };
 
   const addCondition = () => {
-    if (conditions.length >= 10) return; // Limit to 10 conditions for stability
+    if (conditions.length >= MAX_CONDITIONS) return;
     setConditions([
       ...conditions,
       { prefix: "", suffix: "", id: Date.now() + Math.random() },
@@ -1084,7 +1085,7 @@ export default function Home() {
                   </div>
                 ))}
 
-                {conditions.length < 10 && (
+                {conditions.length < MAX_CONDITIONS && (
                   <button
                     type="button"
                     onClick={addCondition}
